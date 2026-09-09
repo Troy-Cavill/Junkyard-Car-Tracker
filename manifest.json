@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Pickapart Vehicle Tracker",
+  "version": "1.0.0",
+  "description": "Tracks first-seen vehicle listings by location and highlights newer entries.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://pickapart.co.nz/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
