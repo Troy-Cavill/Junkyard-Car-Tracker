@@ -89,12 +89,6 @@
   function writeSeenMap(map, explicitStoreKey = null) {
     const storeKey = explicitStoreKey || getStoreKey();
     const serialized = JSON.stringify(map);
-    console.log('[pickapartTracker] write localStorage', {
-      key: storeKey,
-      entries: Object.keys(map).length,
-      preview: Object.keys(map).slice(0, 5),
-      serializedLength: serialized.length,
-    });
     window.localStorage.setItem(storeKey, serialized);
   }
 
@@ -139,6 +133,76 @@
     return `${nameText}${nameText && yearText ? ' ' : ''}${yearText}`.replace(/\s+/g, ' ').trim();
   }
 
+  function getGroupedTitleInfo(text) {
+    const match = String(text || '').match(/^(.+?)\s+\((\d+)\)$/);
+    if (!match) {
+      return null;
+    }
+
+    const groupedTitle = {
+      title: match[1].trim(),
+      count: Number(match[2]),
+    };
+    console.log('[pickapartTracker] grouped title detected', { text, ...groupedTitle });
+    return groupedTitle;
+  }
+
+  function getGroupedEntry(seenMap, key, count, initialFirstSeen = Date.now()) {
+    const existing = seenMap[key];
+    const existingFirstSeen = existing && Number(existing.firstSeen);
+    const existingCount = existing && Number(existing.count ?? existing.carCount);
+    const hasValidExisting = Number.isFinite(existingFirstSeen) && Number.isFinite(existingCount);
+
+    if (!hasValidExisting) {
+      seenMap[key] = { firstSeen: initialFirstSeen, count };
+      console.log('[pickapartTracker] grouped entry initialized', {
+        key,
+        count,
+        firstSeen: initialFirstSeen,
+        existing,
+      });
+      return seenMap[key];
+    }
+
+    if (count <= existingCount) {
+      console.log('[pickapartTracker] grouped entry unchanged', {
+        key,
+        existingCount,
+        count,
+        firstSeen: existingFirstSeen,
+      });
+      return existing;
+    }
+
+    seenMap[key] = {
+      firstSeen: Date.now(),
+      count,
+    };
+    console.log('[pickapartTracker] grouped entry updated', {
+      key,
+      previousCount: existingCount,
+      count,
+      countIncreased: count > existingCount,
+      previousFirstSeen: existingFirstSeen,
+      firstSeen: seenMap[key].firstSeen,
+    });
+    return seenMap[key];
+  }
+
+  function getVehicleEntry(seenMap, key, initialFirstSeen = Date.now()) {
+    const previousValue = seenMap[key];
+    const existingFirstSeen = getFirstSeenTimestamp(seenMap[key]);
+    const firstSeen = Number.isFinite(existingFirstSeen) ? existingFirstSeen : initialFirstSeen;
+
+    seenMap[key] = { firstSeen, count: 1 };
+    console.log('[pickapartTracker] vehicle entry updated', {
+      key,
+      previousValue,
+      value: seenMap[key],
+    });
+    return seenMap[key];
+  }
+
   function isHeaderAnchor(anchor) {
     if (!anchor || anchor.querySelector('b')) {
       return true;
@@ -158,10 +222,11 @@
       return `vehicleId:${vehicleId}`;
     }
     
-    console.log(anchor)
     const text = cleanText(anchor);
-    console.log(text);
-    return `title:${text}`;
+    const groupedTitle = getGroupedTitleInfo(text);
+    const key = `title:${groupedTitle ? groupedTitle.title : text}`;
+    console.log('[pickapartTracker] title key generated', { text, key, groupedTitle });
+    return key;
   }
 
   function isVehicleAnchor(anchor) {
@@ -256,10 +321,23 @@
     try {
       const firstCard = document.querySelector('.car-detail-search-detail');
       const parentTitle = getVehicleTitleFromCard(firstCard);
-      if (!parentTitle) return;
+      if (!parentTitle) {
+        console.log('[pickapartTracker] intermediary parent skipped: no title');
+        return;
+      }
 
-      const carCount = document.querySelectorAll('.car-detail-search').length;
-      const parentKey = `title:${parentTitle} (${carCount})`;
+      const groupedParentTitle = getGroupedTitleInfo(parentTitle);
+      const carCount = groupedParentTitle
+        ? groupedParentTitle.count
+        : document.querySelectorAll('.car-detail-search').length;
+      const canonicalParentTitle = groupedParentTitle ? groupedParentTitle.title : parentTitle;
+      const parentKey = `title:${canonicalParentTitle}`;
+      console.log('[pickapartTracker] intermediary group detected', {
+        parentTitle,
+        canonicalParentTitle,
+        parentKey,
+        carCount,
+      });
 
       // Find the first car link in the list (left-most). Prefer the .car-detail-search img link or view link
       let firstLink = null;
@@ -271,11 +349,17 @@
         if (viewLink) firstLink = viewLink;
       }
 
-      if (!firstLink) return;
+      if (!firstLink) {
+        console.log('[pickapartTracker] intermediary parent skipped: no first vehicle link');
+        return;
+      }
       const href = firstLink.getAttribute('href') || '';
       const firstUrl = new URL(href, window.location.href);
       const firstVehicleId = firstUrl.searchParams.get('VehicleID');
-      if (!firstVehicleId) return;
+      if (!firstVehicleId) {
+        console.log('[pickapartTracker] intermediary parent skipped: no first vehicle id', { href });
+        return;
+      }
 
       // Determine store key for this listing's location
       let storeKey = getStoreKey();
@@ -289,24 +373,50 @@
         }
 
       const raw = window.localStorage.getItem(storeKey);
-      if (!raw) return;
       let seenMap = {};
-      try {
-        seenMap = JSON.parse(raw) || {};
-      } catch (e) {
-        return;
+      if (raw) {
+        try {
+          seenMap = JSON.parse(raw) || {};
+        } catch (e) {
+          console.log('[pickapartTracker] intermediary parent using empty store: invalid JSON', { storeKey });
+        }
       }
 
       const firstKey = `vehicleId:${firstVehicleId}`;
-      const firstSeenValue = Number(seenMap[firstKey]);
-      if (!Number.isFinite(firstSeenValue)) return;
+      const firstSeenValue = getFirstSeenTimestamp(seenMap[firstKey]);
+      const initialFirstSeen = Number.isFinite(firstSeenValue) ? firstSeenValue : Date.now();
+      if (!Number.isFinite(firstSeenValue)) {
+        console.log('[pickapartTracker] intermediary parent using current time: first vehicle has no timestamp', {
+          storeKey,
+          firstKey,
+          storedValue: seenMap[firstKey],
+          initialFirstSeen,
+        });
+      } else {
+        console.log('[pickapartTracker] intermediary parent using stored first vehicle timestamp', {
+          storeKey,
+          firstKey,
+          storedValue: seenMap[firstKey],
+          firstSeenValue,
+        });
+      }
 
-      seenMap[parentKey] = firstSeenValue;
-      console.log('[pickapartTracker] updating parent title localStorage entry', {
+      //seenMap[parentKey] = getGroupedEntry(seenMap, parentKey, carCount, initialFirstSeen);
+      seenMap[parentKey] = {
+        firstSeen: firstSeenValue,
+        count: carCount,
+      };
+      const staleGroupedKeys = Object.keys(seenMap).filter((key) =>
+        key.startsWith(`${parentKey} (`) && / \(\d+\)$/.test(key)
+      );
+      staleGroupedKeys.forEach((key) => delete seenMap[key]);
+      console.log('[pickapartTracker] intermediary parent before write', {
         storeKey,
         parentKey,
         firstKey,
+        firstSeenValue,
         parentValue: seenMap[parentKey],
+        removedStaleKeys: staleGroupedKeys,
       });
       writeSeenMap(seenMap, storeKey);
     } catch (e) {
@@ -364,7 +474,14 @@
 
     const key = `vehicleId:${vehicleId}`;
     // Always set/update the vehicle timestamp using Date In Stock
-    seenMap[key] = ms;
+    seenMap[key] = { firstSeen: ms, count: 1 };
+    console.log('[pickapartTracker] detail vehicle timestamp stored', {
+      storeKey,
+      key,
+      dateText,
+      firstSeen: ms,
+      value: seenMap[key],
+    });
     writeSeenMap(seenMap, storeKey);
   }
 
@@ -401,17 +518,39 @@
     return null;
   }
 
-  function applyHighlight(anchor, firstSeenTs, range) {
+  function getFirstSeenTimestamp(value) {
+    const timestamp = value && typeof value === 'object' ? value.firstSeen : value;
+    return Number(timestamp);
+  }
+
+  function applyHighlight(anchor, firstSeenValue, range) {
     if (!anchor) {
       return;
     }
 
-    const ageDays = (Date.now() - Number(firstSeenTs)) / millisecondsInDay;
+    const firstSeenTs = getFirstSeenTimestamp(firstSeenValue);
+    if (!Number.isFinite(firstSeenTs)) {
+      console.log('[pickapartTracker] highlight skipped: invalid firstSeen', {
+        text: cleanText(anchor),
+        firstSeenValue,
+      });
+      return;
+    }
+
+    const ageDays = (Date.now() - firstSeenTs) / millisecondsInDay;
     const inRange = ageDays >= range.minDays && ageDays <= range.maxDays;
 
     anchor.classList.toggle('pickapart-highlight', inRange);
     anchor.dataset.pickapartFirstSeen = String(firstSeenTs);
-    anchor.title = `First seen: ${new Date(Number(firstSeenTs)).toLocaleString()}`;
+    anchor.title = `First seen: ${new Date(firstSeenTs).toLocaleString()}`;
+    console.log('[pickapartTracker] highlight applied', {
+      text: cleanText(anchor),
+      firstSeenTs,
+      ageDays,
+      range,
+      inRange,
+      classApplied: anchor.classList.contains('pickapart-highlight'),
+    });
   }
 
   function processHomePage(range = readHighlightRange()) {
@@ -424,18 +563,32 @@
       }
 
       const key = getKeyFromAnchorTag(anchor);
-      if (!seenMap[key]) {
-        console.log(`Vehicle not found in seenMap: ${key}`);
-        seenMap[key] = Date.now();
+      const groupedTitle = getGroupedTitleInfo(cleanText(anchor));
+      let firstSeen;
+
+      if (groupedTitle) {
+        const entry = getGroupedEntry(seenMap, key, groupedTitle.count);
+        firstSeen = entry;
+      } else {
+        firstSeen = getVehicleEntry(seenMap, key);
       }
 
-      console.log(seenMap);
-
-      console.log(`Applying highlight for ${key} with timestamp ${seenMap[key]}`);
-
-      applyHighlight(anchor, seenMap[key], range);
+      console.log('[pickapartTracker] processing vehicle anchor', {
+        key,
+        groupedTitle,
+        storedValue: seenMap[key],
+      });
+      applyHighlight(anchor, firstSeen, range);
     });
     writeSeenMap(seenMap);
+  }
+
+  function openHighlightedItems() {
+    const highlightedAnchors = Array.from(document.querySelectorAll('a.pickapart-highlight[href]'));
+
+    highlightedAnchors.forEach((anchor) => {
+      window.open(anchor.href, '_blank', 'noopener');
+    });
   }
 
   function addHighlightControls() {
@@ -454,12 +607,14 @@
       <label>Maximum: <output data-range-max>${range.maxDays}</output> days
         <input type="range" min="0" max="${MAX_RANGE_DAYS}" value="${range.maxDays}" data-range-max-input>
       </label>
+      <button type="button" data-open-highlighted>Open green items</button>
     `;
 
     const minInput = controls.querySelector('[data-range-min-input]');
     const maxInput = controls.querySelector('[data-range-max-input]');
     const minOutput = controls.querySelector('[data-range-min]');
     const maxOutput = controls.querySelector('[data-range-max]');
+    const openHighlightedButton = controls.querySelector('[data-open-highlighted]');
 
     const updateRange = () => {
       const minDays = Math.min(Number(minInput.value), Number(maxInput.value));
@@ -476,6 +631,7 @@
 
     minInput.addEventListener('input', updateRange);
     maxInput.addEventListener('input', updateRange);
+    openHighlightedButton.addEventListener('click', openHighlightedItems);
     document.body.appendChild(controls);
   }
 

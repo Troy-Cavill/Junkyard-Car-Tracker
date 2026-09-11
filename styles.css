@@ -40,3 +40,20 @@
   width: 100%;
   margin: 3px 0 0;
 }
+
+.pickapart-controls button {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 8px;
+  color: #ffffff;
+  background: #15803d;
+  border: 1px solid #166534;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.pickapart-controls button:hover {
+  background: #166534;
+}
