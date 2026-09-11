@@ -403,7 +403,7 @@
 
       //seenMap[parentKey] = getGroupedEntry(seenMap, parentKey, carCount, initialFirstSeen);
       seenMap[parentKey] = {
-        firstSeen: firstSeenValue,
+        firstSeen: initialFirstSeen,
         count: carCount,
       };
       const staleGroupedKeys = Object.keys(seenMap).filter((key) =>
@@ -520,6 +520,9 @@
 
   function getFirstSeenTimestamp(value) {
     const timestamp = value && typeof value === 'object' ? value.firstSeen : value;
+    if (timestamp === null || timestamp === undefined) {
+      return Date.now();
+    }
     return Number(timestamp);
   }
 
