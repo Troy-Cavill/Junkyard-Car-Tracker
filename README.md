@@ -7,6 +7,7 @@ This Chrome extension watches listings on pickapart.co.nz and stores each vehicl
 - Tracks vehicle listings by location so different sites do not interfere with each other
 - Highlights rows green when their age falls within the selected day range
 - Provides minimum and maximum day sliders for the highlight range
+- Shows the number of green items on the "Open green items" button and opens those items in new tabs
 - Persists the first-seen timestamp in localStorage for later refreshes
 - Stores grouped listings by title with their vehicle count separately
 - Resets a grouped listing's first-seen date when its count increases, but not when it decreases
