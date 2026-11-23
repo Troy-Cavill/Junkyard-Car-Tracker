@@ -11,8 +11,9 @@
 
   const millisecondsInDay = 24 * 60 * 60 * 1000;
   const SETTINGS_KEY = `${STORAGE_PREFIX}/settings`;
-  const MAX_RANGE_DAYS = 60;
+  const MAX_RANGE_DAYS = 90;
   const DEFAULT_RANGE = { minDays: 0, maxDays: 30 };
+  const OPEN_FIRST_CAR_PARAM = 'pickapartTrackerOpenFirst';
 
   function getStoreKeyForPath(pathValue) {
     const normalized = String(pathValue || '')
@@ -590,8 +591,30 @@
     const highlightedAnchors = Array.from(document.querySelectorAll('a.pickapart-highlight[href]'));
 
     highlightedAnchors.forEach((anchor) => {
-      window.open(anchor.href, '_blank', 'noopener');
+      const itemUrl = new URL(anchor.href, window.location.href);
+      if (itemUrl.pathname.toLowerCase().includes('display_vehicles.asp') || itemUrl.searchParams.get('SeriesID')) {
+        itemUrl.searchParams.set(OPEN_FIRST_CAR_PARAM, '1');
+      }
+      window.open(itemUrl.href, '_blank', 'noopener');
     });
+  }
+
+  function openFirstCarAndReloadIntermediary() {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(OPEN_FIRST_CAR_PARAM) !== '1') {
+      return false;
+    }
+
+    const firstLink = document.querySelector('.car-detail-search .car-search-view a') ||
+      document.querySelector('.car-detail-search .car-detail-search-img a');
+    if (firstLink) {
+      window.open(new URL(firstLink.href, window.location.href).href, '_blank', 'noopener');
+    }
+
+    url.searchParams.delete(OPEN_FIRST_CAR_PARAM);
+    window.history.replaceState(null, '', url.href);
+    window.setTimeout(() => window.location.reload(), 1000);
+    return true;
   }
 
   function addHighlightControls() {
@@ -646,6 +669,9 @@
     }
 
     if (isIntermediaryPage()) {
+      if (openFirstCarAndReloadIntermediary()) {
+        return;
+      }
       updateParentFromIntermediaryPage();
       return;
     }
