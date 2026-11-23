@@ -585,6 +585,7 @@
       applyHighlight(anchor, firstSeen, range);
     });
     writeSeenMap(seenMap);
+    updateHighlightedCount();
   }
 
   function openHighlightedItems() {
@@ -597,6 +598,19 @@
       }
       window.open(itemUrl.href, '_blank', 'noopener');
     });
+  }
+
+  function updateHighlightedCount() {
+    const button = document.querySelector('[data-open-highlighted]');
+    if (!button) {
+      return;
+    }
+
+    const count = document.querySelectorAll('a.pickapart-highlight[href]').length;
+    const label = `Open green items (${count})`;
+    if (button.textContent !== label) {
+      button.textContent = label;
+    }
   }
 
   function openFirstCarAndReloadIntermediary() {
